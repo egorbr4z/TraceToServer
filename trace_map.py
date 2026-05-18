@@ -480,17 +480,17 @@ def _header(n_total: int, n_geo: int,
             upgrade: str = "", dots: int = 0) -> Panel:
     ts = datetime.now().strftime('%H:%M:%S')
     t = Text(justify="center", no_wrap=True, overflow="crop")
-    t.append("⬡ TraceToServer", style="bold bright_cyan")
-    t.append(f"  │  {ts}  │  ", style="dim white")
+    t.append("TraceToServer", style="bold bright_cyan")
+    t.append(f"  |  {ts}  |  ", style="dim white")
     t.append(str(n_total), style="bold bright_yellow")
-    t.append(" connections  │  ", style="dim white")
+    t.append(" conn  |  ", style="dim white")
     t.append(str(n_geo), style="bold bright_green")
-    t.append(" geolocated", style="dim white")
+    t.append(" geo", style="dim white")
     if upgrade:
-        spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[dots % 10]
-        t.append(f"  │  {spinner} {upgrade}", style="dim yellow")
+        spinner = "/-\\|"[dots % 4]
+        t.append(f"  |  {spinner} {upgrade}", style="dim yellow")
     else:
-        t.append("  │  Ctrl-C to quit", style="dim white")
+        t.append("  |  Ctrl-C to quit", style="dim white")
     return Panel(t, style="on grey11", padding=(0, 1), height=3)
 
 
@@ -499,26 +499,24 @@ def _conn_table(labels: list) -> Panel:
         box=rbox.SIMPLE, expand=True, show_header=True,
         header_style="bold bright_cyan", padding=(0, 1),
     )
-    tbl.add_column("IP Address",  style="bright_white", min_width=15)
-    tbl.add_column("Location",    style="bright_green",  min_width=22)
-    tbl.add_column("Process",     style="yellow",        min_width=10)
+    tbl.add_column("IP Address", style="bright_white", min_width=15)
+    tbl.add_column("Location",   style="bright_green", min_width=20)
+    tbl.add_column("Process",    style="yellow",       min_width=10)
 
     if labels:
         for ip, loc, proc in labels[:8]:
             tbl.add_row(ip, loc, proc)
     else:
         tbl.add_row(
-            "[dim]waiting for connections…[/dim]",
-            "[dim]make sure you have internet activity[/dim]", ""
+            Text("waiting for connections...", style="dim"),
+            Text("open a browser or any app", style="dim"),
+            Text(""),
         )
 
-    return Panel(
-        tbl,
-        title="[bold bright_cyan]Active Connections[/bold bright_cyan]",
-        border_style="bright_blue",
-        style="on grey7",
-        height=11,
-    )
+    title = Text()
+    title.append("Active Connections", style="bold bright_cyan")
+    return Panel(tbl, title=title,
+                 border_style="bright_blue", style="on grey7", height=11)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -526,10 +524,12 @@ def _conn_table(labels: list) -> Panel:
 # ══════════════════════════════════════════════════════════════
 
 def _make_map_panel(map_text: Text) -> Panel:
+    title = Text()
+    title.append("World Traffic Map", style="bold bright_cyan")
+    title.append("  o=you  x=server", style="dim white")
     return Panel(
         Align(map_text, "left", vertical="top"),
-        title="[bold bright_cyan]World Traffic Map[/bold bright_cyan]"
-              "  [dim]◉ you  ✦ server[/dim]",
+        title=title,
         border_style="blue",
         style="on #050d1a",
     )
@@ -667,7 +667,8 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    console.print("\n[bright_cyan]TraceToServer[/] closed. Bye!")
+    bye = Text("\nTraceToServer closed. Bye!", style="bright_cyan")
+    console.print(bye)
 
 
 if __name__ == '__main__':

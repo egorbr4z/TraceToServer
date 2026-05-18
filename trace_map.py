@@ -556,31 +556,77 @@ def main():
         Layout(name="table", size=11),
     )
 
-    # ── Phase 1: instant fallback map (built-in outlines) ───
-    # Shows immediately — no download required
-    canvas_ref: list = [BrailleCanvas(map_cols, map_rows)]
-    rasterize(canvas_ref[0], None)   # uses embedded _FALLBACK_OUTLINES
+    # ── Phase 1: instant map ─────────────────────────────────
+    # rasterize() loads binary cache if available (HD quality, instant),
+    # otherwise uses built-in fallback outlines (~2 ms).
+    canvas_ref:  list = [BrailleCanvas(map_cols, map_rows)]
+    rasterize(canvas_ref[0], None)
 
-    geo_data: list = [None]
-    upgrade_msg: list = [""]         # non-empty while upgrading
+    geo_data:    list = [None]
+    upgrade_msg: list = [""]
 
-    # Pre-fill layout with real content — no placeholders ever
+    # Pre-fill layout — no placeholders ever
     layout["header"].update(_header(0, 0))
     layout["map"].update(_make_map_panel(canvas_ref[0].render()))
     layout["table"].update(_conn_table([]))
 
-    # ── Phase 2: download HD map in background, hot-swap ────
+    # ── Phase 2: progressive HD rasterization ────────────────
+    # If binary cache already exists → nothing to do (phase 1 loaded it).
+    # Otherwise: download GeoJSON, fill polygons one-by-one so the map
+    # "reveals" itself in real time, then save binary cache.
     def _upgrade_map():
-        upgrade_msg[0] = "downloading HD map…"
-        geo = _load_geojson()
-        if geo is None:
+        hd = canvas_ref[0]
+        cp = _land_cache_path(hd.pw, hd.ph)
+        if cp.exists():           # phase 1 already loaded HD data
             upgrade_msg[0] = ""
             return
-        upgrade_msg[0] = "rasterizing HD map…"
-        c = BrailleCanvas(map_cols, map_rows)
-        rasterize(c, geo)
-        geo_data[0]    = geo
-        canvas_ref[0]  = c          # atomic swap — main loop picks it up
+
+        upgrade_msg[0] = "downloading HD map…"
+        geo = _load_geojson()
+        if not geo:
+            upgrade_msg[0] = ""
+            return
+
+        geo_data[0] = geo
+        features    = geo.get("features", [])
+        pw, ph      = hd.pw, hd.ph
+
+        # ── Fill polygons one-by-one ──────────────────────────
+        # hd IS canvas_ref[0] → main loop sees each pixel as it appears.
+        # time.sleep() yields GIL so the render loop runs between fills.
+        upgrade_msg[0] = "rendering HD map…"
+        for feat in features:
+            geom   = feat.get("geometry", {})
+            gtype  = geom.get("type", "")
+            coords = geom.get("coordinates", [])
+            polys  = ([coords]  if gtype == "Polygon"      else
+                      coords    if gtype == "MultiPolygon" else [])
+            for poly in polys:
+                if poly:
+                    _fill_ring(poly[0], hd.land, pw, ph)
+            time.sleep(0.05)      # yield → render loop redraws
+
+        # ── Redraw coastline edges for sharpness ──────────────
+        upgrade_msg[0] = "sharpening coastlines…"
+        for feat in features:
+            geom   = feat.get("geometry", {})
+            gtype  = geom.get("type", "")
+            coords = geom.get("coordinates", [])
+            polys  = ([coords]  if gtype == "Polygon"      else
+                      coords    if gtype == "MultiPolygon" else [])
+            for poly in polys:
+                for ring in poly:
+                    pts = [_ll_px(lat, lon, pw, ph) for lon, lat in ring]
+                    for i in range(len(pts) - 1):
+                        for x, y in _bresenham(*pts[i], *pts[i+1]):
+                            hd.land(x, y)
+
+        # ── Save binary cache (instant loads from now on) ─────
+        try:
+            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cp.write_bytes(bytes(hd._land))
+        except Exception:
+            pass
         upgrade_msg[0] = ""
 
     threading.Thread(target=_upgrade_map, daemon=True).start()

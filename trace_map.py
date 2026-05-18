@@ -476,7 +476,8 @@ def _draw_connections(canvas: BrailleCanvas,
 #  RICH UI COMPONENTS
 # ══════════════════════════════════════════════════════════════
 
-def _header(n_total: int, n_geo: int) -> Panel:
+def _header(n_total: int, n_geo: int,
+            upgrade: str = "", dots: int = 0) -> Panel:
     ts = datetime.now().strftime('%H:%M:%S')
     t = Text(justify="center", no_wrap=True, overflow="crop")
     t.append("⬡ TraceToServer", style="bold bright_cyan")
@@ -484,7 +485,12 @@ def _header(n_total: int, n_geo: int) -> Panel:
     t.append(str(n_total), style="bold bright_yellow")
     t.append(" connections  │  ", style="dim white")
     t.append(str(n_geo), style="bold bright_green")
-    t.append(" geolocated  │  Ctrl-C to quit", style="dim white")
+    t.append(" geolocated", style="dim white")
+    if upgrade:
+        spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[dots % 10]
+        t.append(f"  │  {spinner} {upgrade}", style="dim yellow")
+    else:
+        t.append("  │  Ctrl-C to quit", style="dim white")
     return Panel(t, style="on grey11", padding=(0, 1), height=3)
 
 
@@ -529,13 +535,6 @@ def _make_map_panel(map_text: Text) -> Panel:
     )
 
 
-def _make_loading_panel(msg: str, dots: int) -> Panel:
-    spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[dots % 10]
-    t = Text(justify="center")
-    t.append(f"\n\n\n{spinner} ", style="bright_cyan bold")
-    t.append(msg, style="bright_white")
-    return Panel(t, border_style="blue", style="on #050d1a")
-
 
 def main():
     console = Console()
@@ -557,26 +556,34 @@ def main():
         Layout(name="table", size=11),
     )
 
-    # Pre-fill so Live never shows placeholder text
+    # ── Phase 1: instant fallback map (built-in outlines) ───
+    # Shows immediately — no download required
+    canvas_ref: list = [BrailleCanvas(map_cols, map_rows)]
+    rasterize(canvas_ref[0], None)   # uses embedded _FALLBACK_OUTLINES
+
+    geo_data: list = [None]
+    upgrade_msg: list = [""]         # non-empty while upgrading
+
+    # Pre-fill layout with real content — no placeholders ever
     layout["header"].update(_header(0, 0))
-    layout["map"].update(_make_loading_panel("Downloading world map data…", 0))
+    layout["map"].update(_make_map_panel(canvas_ref[0].render()))
     layout["table"].update(_conn_table([]))
 
-    # ── Download + rasterize in background ──────────────────
-    geo_data:  list = [None]
-    canvas_ref: list = [None]
-    map_ready  = threading.Event()
-    load_msg:  list = ["downloading…"]
-
-    def _build_map():
-        geo_data[0] = _load_geojson()
-        load_msg[0] = "rasterizing map…"
+    # ── Phase 2: download HD map in background, hot-swap ────
+    def _upgrade_map():
+        upgrade_msg[0] = "downloading HD map…"
+        geo = _load_geojson()
+        if geo is None:
+            upgrade_msg[0] = ""
+            return
+        upgrade_msg[0] = "rasterizing HD map…"
         c = BrailleCanvas(map_cols, map_rows)
-        rasterize(c, geo_data[0])
-        canvas_ref[0] = c
-        map_ready.set()
+        rasterize(c, geo)
+        geo_data[0]    = geo
+        canvas_ref[0]  = c          # atomic swap — main loop picks it up
+        upgrade_msg[0] = ""
 
-    threading.Thread(target=_build_map, daemon=True).start()
+    threading.Thread(target=_upgrade_map, daemon=True).start()
 
     # ── Main render loop ─────────────────────────────────────
     dots = 0
@@ -585,24 +592,15 @@ def main():
                   screen=True):
             while True:
                 dots += 1
-
-                if not map_ready.is_set():
-                    # Loading state — update header + spinner, keep table
-                    layout["header"].update(_header(0, 0))
-                    layout["map"].update(
-                        _make_loading_panel(load_msg[0], dots))
-                    time.sleep(0.15)
-                    continue
-
-                # Map is ready — get canvas (only once)
-                canvas = canvas_ref[0]
+                canvas = canvas_ref[0]   # may be atomically swapped anytime
 
                 canvas.clear_frame()
                 conns  = MONITOR.snapshot()
                 labels = _draw_connections(canvas, conns, _OWN_GEO)
                 map_text = canvas.render()
 
-                layout["header"].update(_header(len(conns), len(labels)))
+                layout["header"].update(
+                    _header(len(conns), len(labels), upgrade_msg[0], dots))
                 layout["map"].update(_make_map_panel(map_text))
                 layout["table"].update(_conn_table(labels))
 

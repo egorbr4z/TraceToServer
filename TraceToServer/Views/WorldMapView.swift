@@ -2,8 +2,8 @@ import SwiftUI
 import MapKit
 
 struct WorldMapView: NSViewRepresentable {
-    @ObservedObject var countryService: CountryService
-    @ObservedObject var geoService: GeoService
+    var countryService: CountryService
+    var geoService: GeoService
     let connections: [Connection]
     @Binding var selectedCountry: Country?
 

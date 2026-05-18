@@ -1,9 +1,10 @@
 import Foundation
-import Combine
+import Observation
 
 @MainActor
-class NetworkMonitor: ObservableObject {
-    @Published var connections: [Connection] = []
+@Observable
+class NetworkMonitor {
+    var connections: [Connection] = []
 
     private var timer: Timer?
 

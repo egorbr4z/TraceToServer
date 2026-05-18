@@ -1,11 +1,13 @@
 import Foundation
 import MapKit
 import CoreLocation
+import Observation
 
 @MainActor
-class CountryService: ObservableObject {
-    @Published var countries: [Country] = []
-    @Published var isLoaded = false
+@Observable
+class CountryService {
+    var countries: [Country] = []
+    var isLoaded = false
 
     init() {
         Task { await load() }

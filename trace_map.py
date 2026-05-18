@@ -528,7 +528,7 @@ def _conn_table(labels: list) -> Panel:
 def _make_map_panel(map_text: Text) -> Panel:
     return Panel(
         Align(map_text, "left", vertical="top"),
-        title="[bold bright_cyan]World Traffic Map[/bold]"
+        title="[bold bright_cyan]World Traffic Map[/bold bright_cyan]"
               "  [dim]◉ you  ✦ server[/dim]",
         border_style="blue",
         style="on #050d1a",

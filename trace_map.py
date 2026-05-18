@@ -5,6 +5,8 @@ Visualises active TCP/UDP connections as lines on an ASCII world map.
 Run with:  python3 trace_map.py
 """
 
+from __future__ import annotations
+
 import curses
 import threading
 import time

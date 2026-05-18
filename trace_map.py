@@ -519,6 +519,24 @@ def _conn_table(labels: list) -> Panel:
 #  MAIN
 # ══════════════════════════════════════════════════════════════
 
+def _make_map_panel(map_text: Text) -> Panel:
+    return Panel(
+        Align(map_text, "left", vertical="top"),
+        title="[bold bright_cyan]World Traffic Map[/bold]"
+              "  [dim]◉ you  ✦ server[/dim]",
+        border_style="blue",
+        style="on #050d1a",
+    )
+
+
+def _make_loading_panel(msg: str, dots: int) -> Panel:
+    spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[dots % 10]
+    t = Text(justify="center")
+    t.append(f"\n\n\n{spinner} ", style="bright_cyan bold")
+    t.append(msg, style="bright_white")
+    return Panel(t, border_style="blue", style="on #050d1a")
+
+
 def main():
     console = Console()
 
@@ -526,53 +544,66 @@ def main():
     for fn in (GEO.run_worker, MONITOR.run, _fetch_own_geo):
         threading.Thread(target=fn, daemon=True).start()
 
-    # ── Initial sizing ──────────────────────────────────────
+    # ── Sizing ──────────────────────────────────────────────
     tw, th = console.size
-    # subtract: header(3) + table(11) + panel borders(~4) + margin(1)
     map_rows = max(12, th - 3 - 11 - 5)
     map_cols = max(40, tw - 4)
 
-    _status = ["initialising…"]
-    def status_cb(msg): _status[0] = msg
-
-    canvas = BrailleCanvas(map_cols, map_rows)
-
-    # ── Download + rasterize map ─────────────────────────────
-    print(f"[TraceToServer] Downloading map data…")
-    geo_data = _load_geojson()
-    print(f"[TraceToServer] Rasterizing…")
-    rasterize(canvas, geo_data, status_cb)
-    print(f"[TraceToServer] {_status[0]}")
-    time.sleep(0.5)
-
-    # ── Layout ───────────────────────────────────────────────
+    # ── Layout (created once, sections updated every frame) ─
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=3),
         Layout(name="map"),
-        Layout(name="table",  size=11),
+        Layout(name="table", size=11),
     )
 
-    # ── Render loop ──────────────────────────────────────────
+    # Pre-fill so Live never shows placeholder text
+    layout["header"].update(_header(0, 0))
+    layout["map"].update(_make_loading_panel("Downloading world map data…", 0))
+    layout["table"].update(_conn_table([]))
+
+    # ── Download + rasterize in background ──────────────────
+    geo_data:  list = [None]
+    canvas_ref: list = [None]
+    map_ready  = threading.Event()
+    load_msg:  list = ["downloading…"]
+
+    def _build_map():
+        geo_data[0] = _load_geojson()
+        load_msg[0] = "rasterizing map…"
+        c = BrailleCanvas(map_cols, map_rows)
+        rasterize(c, geo_data[0])
+        canvas_ref[0] = c
+        map_ready.set()
+
+    threading.Thread(target=_build_map, daemon=True).start()
+
+    # ── Main render loop ─────────────────────────────────────
+    dots = 0
     try:
-        with Live(layout, console=console, refresh_per_second=2,
+        with Live(layout, console=console, refresh_per_second=4,
                   screen=True):
             while True:
+                dots += 1
+
+                if not map_ready.is_set():
+                    # Loading state — update header + spinner, keep table
+                    layout["header"].update(_header(0, 0))
+                    layout["map"].update(
+                        _make_loading_panel(load_msg[0], dots))
+                    time.sleep(0.15)
+                    continue
+
+                # Map is ready — get canvas (only once)
+                canvas = canvas_ref[0]
+
                 canvas.clear_frame()
                 conns  = MONITOR.snapshot()
                 labels = _draw_connections(canvas, conns, _OWN_GEO)
                 map_text = canvas.render()
 
                 layout["header"].update(_header(len(conns), len(labels)))
-                layout["map"].update(
-                    Panel(
-                        Align(map_text, "left", vertical="top"),
-                        title="[bold bright_cyan]World Traffic Map[/bold]"
-                              "  [dim]◉ you  ✦ server[/dim]",
-                        border_style="blue",
-                        style="on #050d1a",  # dark navy background = ocean
-                    )
-                )
+                layout["map"].update(_make_map_panel(map_text))
                 layout["table"].update(_conn_table(labels))
 
                 # Handle terminal resize
@@ -583,8 +614,9 @@ def main():
                     new_cols = max(40, tw - 4)
                     if new_rows != map_rows or new_cols != map_cols:
                         map_rows, map_cols = new_rows, new_cols
-                        canvas = BrailleCanvas(map_cols, map_rows)
-                        rasterize(canvas, geo_data)
+                        new_canvas = BrailleCanvas(map_cols, map_rows)
+                        rasterize(new_canvas, geo_data[0])
+                        canvas_ref[0] = new_canvas
 
                 time.sleep(0.4)
 

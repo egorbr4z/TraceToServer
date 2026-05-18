@@ -1,10 +1,9 @@
 import SwiftUI
-import Combine
 
 struct ContentView: View {
-    @StateObject private var monitor = NetworkMonitor()
-    @StateObject private var geoService = GeoService()
-    @StateObject private var countryService = CountryService()
+    @State private var monitor = NetworkMonitor()
+    @State private var geoService = GeoService()
+    @State private var countryService = CountryService()
 
     @State private var selectedCountry: Country?
     @State private var processFilter: String?

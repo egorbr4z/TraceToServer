@@ -1,11 +1,12 @@
 import Foundation
-import Combine
 import CoreLocation
+import Observation
 
 @MainActor
-class GeoService: ObservableObject {
-    @Published var locations: [String: GeoLocation] = [:]
-    @Published var ownLocation: GeoLocation?
+@Observable
+class GeoService {
+    var locations: [String: GeoLocation] = [:]
+    var ownLocation: GeoLocation?
 
     private var pending: Set<String> = []
     private var cacheOrder: [String] = []
